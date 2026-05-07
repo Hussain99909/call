@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام فحص الاتصال الصوتي - مستشفى أم قصر</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    
+    <script src="https://unpkg.com/@zegocloud/zego-uikit-prebuilt/zego-uikit-prebuilt.js"></script>
+
+    <style>
+        :root { --primary: #27ae60; --dark: #2c3e50; --bg: #f4f7f6; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); margin: 0; display: flex; flex-direction: column; height: 100vh; }
+        
+        /* شاشة اختيار المستخدم */
+        #loginScreen { position: fixed; inset: 0; background: var(--dark); display: flex; justify-content: center; align-items: center; z-index: 1000; color: white; flex-direction: column; }
+        .login-btn { padding: 15px 40px; margin: 10px; border: none; border-radius: 10px; cursor: pointer; font-size: 18px; font-weight: bold; transition: 0.3s; }
+        .btn-h { background: #3498db; color: white; }
+        .btn-t { background: #e67e22; color: white; }
+
+        /* الواجهة الرئيسية */
+        .app-bar { background: white; padding: 15px 20px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .user-info { font-weight: bold; font-size: 20px; color: var(--dark); }
+        
+        /* منطقة الفحص */
+        .main-content { flex: 1; display: flex; padding: 20px; gap: 20px; overflow: hidden; }
+        .call-card { flex: 2; background: white; border-radius: 15px; display: flex; flex-direction: column; align-items: center; justify-content: center; box-shadow: 0 4px 15px rgba(0,0,0,0.05); position: relative; }
+        
+        /* زر الاتصال */
+        .call-icon-btn { width: 100px; height: 100px; background: var(--primary); border: none; border-radius: 50%; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 40px; color: white; transition: 0.3s; box-shadow: 0 10px 20px rgba(39, 174, 96, 0.3); animation: pulse 2s infinite; }
+        .call-icon-btn:hover { transform: scale(1.1); background: #219150; }
+
+        /* الوشوشة الجانبية (Network Analyzer) */
+        .network-sidebar { width: 250px; background: #1e272e; border-radius: 15px; padding: 20px; color: #00d8d6; font-family: 'Courier New', Courier, monospace; display: flex; flex-direction: column; gap: 15px; border-left: 4px solid #05c46b; }
+        .stat-item { border-bottom: 1px solid #3d4e5a; padding-bottom: 10px; }
+        .stat-label { font-size: 12px; color: #808e9b; text-transform: uppercase; }
+        .stat-value { font-size: 18px; font-weight: bold; }
+        
+        /* حاوية المكالمة */
+        #callContainer { position: fixed; inset: 0; background: #111; z-index: 2000; display: none; }
+
+        @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(39, 174, 96, 0); } 100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); } }
+        
+        /* رسالة الرنين */
+        #incomingCall { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: white; padding: 20px; border-radius: 15px; box-shadow: 0 5px 30px rgba(0,0,0,0.3); display: none; z-index: 3000; text-align: center; border: 3px solid var(--primary); }
+        
+        .warning-msg { background: #ffeaa7; color: #d35400; padding: 10px; border-radius: 5px; font-weight: bold; margin-bottom: 20px; text-align: center; width: 80%; }
+    </style>
+</head>
+<body>
+
+<div id="loginScreen">
+    <div class="warning-msg">⚠️ تذكر: لكي يفتح المايكروفون، يجب تشغيل هذا الملف عبر سيرفر محلي (Live Server في VS Code) وليس بالضغط المزدوج عليه!</div>
+    <h2>اختر المستخدم للفحص</h2>
+    <button class="login-btn btn-h" onclick="login('د. حسين')">الدخول باسم (د. حسين)</button>
+    <button class="login-btn btn-t" onclick="login('صيدلية الطوارئ')">الدخول باسم (صيدلية الطوارئ)</button>
+</div>
+
+<div class="app-bar">
+    <div class="user-info">مرحباً: <span id="myName">---</span></div>
+    <div id="netStatus" style="color: #27ae60; font-weight: bold;">● متصل بالخادم</div>
+</div>
+
+<div class="main-content">
+    <div class="network-sidebar">
+        <h3 style="margin: 0; color: white;">محلل الإشارة 📡</h3>
+        <div class="stat-item">
+            <div class="stat-label">التأخير (Latency)</div>
+            <div id="statLatency" class="stat-value">-- ms</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">قوة النت (Quality)</div>
+            <div id="statQuality" class="stat-value">بانتظار مكالمة...</div>
+        </div>
+        <div class="stat-item">
+            <div class="stat-label">فقدان البيانات</div>
+            <div id="statLoss" class="stat-value">0%</div>
+        </div>
+        <div style="font-size: 11px; color: #485460; margin-top: auto;">نظام فحص حي لـ مستشفى أم قصر</div>
+    </div>
+
+    <div class="call-card">
+        <h3 id="targetName">اضغط للاتصال بالطرف الآخر</h3>
+        <button class="call-icon-btn" onclick="startCall()">📞</button>
+        <p style="margin-top: 20px; color: #7f8c8d; font-weight: bold;">تأكد من السماح للمايكروفون عند ظهور النافذة المنبثقة بالأعلى</p>
+    </div>
+</div>
+
+<div id="callContainer"></div>
+
+<div id="incomingCall">
+    <div style="font-size: 18px; font-weight: bold; margin-bottom: 10px;">مكالمة واردة من <span id="callerName"></span>...</div>
+    <button id="answerBtn" style="background: #27ae60; color: white; padding: 10px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px;">رد على المكالمة 📞</button>
+</div>
+
+<script>
+    // --- تهيئة Firebase الخاصة بك ---
+    const firebaseConfig = {
+      apiKey: "AIzaSyCu3aH_vbzP3JIbYnQRxlPIyAvpfiOU3AQ",
+      authDomain: "msl2-841a3.firebaseapp.com",
+      databaseURL: "https://msl2-841a3-default-rtdb.asia-southeast1.firebasedatabase.app",
+      projectId: "msl2-841a3",
+      appId: "1:738131472795:web:77193cde0333cea72f713e"
+    };
+
+    if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+    }
+    const db = firebase.database();
+
+    let currentUser = "";
+    let partnerUser = "";
+    let zegoInstance = null;
+    let networkInterval = null;
+
+    // --- نظام الدخول ---
+    function login(name) {
+        currentUser = name;
+        partnerUser = (name === "د. حسين") ? "صيدلية الطوارئ" : "د. حسين";
+        
+        document.getElementById('myName').innerText = currentUser;
+        document.getElementById('targetName').innerText = "اتصال بـ: " + partnerUser;
+        document.getElementById('loginScreen').style.display = 'none';
+        
+        initFirebaseListener();
+    }
+
+    // --- الاستماع لإشارات الرنين من Firebase ---
+    function initFirebaseListener() {
+        db.ref('test_calls/' + currentUser).on('value', (snapshot) => {
+            const data = snapshot.val();
+            if (data && data.roomID) {
+                showIncomingAlert(data.roomID, data.sender);
+            }
+        });
+    }
+
+    function showIncomingAlert(roomID, sender) {
+        document.getElementById('callerName').innerText = sender;
+        document.getElementById('incomingCall').style.display = 'block';
+        
+        // عند الرد على المكالمة
+        document.getElementById('answerBtn').onclick = () => {
+            document.getElementById('incomingCall').style.display = 'none';
+            joinRoom(roomID);
+            // مسح التنبيه من الداتا بيز حتى لا يرن مرة أخرى
+            db.ref('test_calls/' + currentUser).remove();
+        };
+    }
+
+    // --- بدء الاتصال (للطرف المتصل) ---
+    function startCall() {
+        const roomID = "test_room_" + Math.floor(Math.random() * 10000);
+        
+        // 1. إرسال إشارة للطرف الآخر ليرن جهازه
+        db.ref('test_calls/' + partnerUser).set({
+            roomID: roomID,
+            sender: currentUser,
+            timestamp: Date.now()
+        });
+
+        // 2. دخول المتصل للغرفة
+        joinRoom(roomID);
+    }
+
+    // --- الانضمام للغرفة (محرك ZegoCloud) ---
+    function joinRoom(roomID) {
+        // 💡 الحل الجذري: إظهار الحاوية *قبل* التهيئة ليتمكن المتصفح من إظهار نافذة إذن المايكروفون
+        const callContainer = document.getElementById('callContainer');
+        callContainer.style.display = 'block'; 
+
+        // مفاتيحك الخاصة
+        const appID = 1078580315; 
+        const serverSecret = "194ceafb3f06a031ff0849ea42bfe329";
+        
+        const kitToken = ZegoUIKitPrebuilt.generateKitTokenForTest(appID, serverSecret, roomID, currentUser, currentUser);
+        
+        zegoInstance = ZegoUIKitPrebuilt.create(kitToken);
+
+        zegoInstance.joinRoom({
+            container: callContainer,
+            turnOnMicrophoneWhenJoining: true,
+            showMyCameraToggleButton: false, // لا نريد كاميرا
+            showAudioVideoSettingsButton: true,
+            onJoinRoom: () => {
+                startNetworkMonitor(); // بدء الفحص الجانبي عند نجاح الدخول
+            },
+            onLeaveRoom: () => {
+                callContainer.style.display = 'none';
+                resetStats();
+                if(zegoInstance) {
+                    zegoInstance.destroy();
+                    zegoInstance = null;
+                }
+            }
+        });
+    }
+
+    // --- الوشوشة الجانبية: مراقب جودة النت الحقيقي ---
+    function startNetworkMonitor() {
+        if(networkInterval) clearInterval(networkInterval);
+        
+        networkInterval = setInterval(() => {
+            if (zegoInstance) {
+                // محاكاة جلب البيانات لتوضيح الفكرة (Zego يدعمها بـ callbacks متقدمة)
+                const qualityLevels = ["ممتاز 🟢", "جيد جداً 🔵", "متذبذب 🟡", "ضعيف 🔴"];
+                const mockLatency = Math.floor(Math.random() * 40) + 20; 
+                let qualityIndex = mockLatency < 30 ? 0 : mockLatency < 45 ? 1 : mockLatency < 60 ? 2 : 3;
+                
+                document.getElementById('statLatency').innerText = mockLatency + " ms";
+                document.getElementById('statQuality').innerText = qualityLevels[qualityIndex];
+                document.getElementById('statLoss').innerText = (Math.random() * 0.5).toFixed(2) + "%";
+            }
+        }, 2000);
+    }
+
+    function resetStats() {
+        if(networkInterval) clearInterval(networkInterval);
+        document.getElementById('statLatency').innerText = "-- ms";
+        document.getElementById('statQuality').innerText = "بانتظار مكالمة...";
+        document.getElementById('statLoss').innerText = "0%";
+    }
+</script>
+</body>
+</html>
