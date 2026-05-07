@@ -38,8 +38,21 @@
         .stat-label { font-size: 12px; color: #808e9b; text-transform: uppercase; }
         .stat-value { font-size: 18px; font-weight: bold; }
         
-        /* حاوية المكالمة */
-        #callContainer { position: fixed; inset: 0; background: #111; z-index: 2000; display: none; }
+        /* حاوية المكالمة (التصميم العائم الجديد) */
+        #callContainer { 
+            position: fixed; 
+            bottom: 20px; 
+            left: 20px; /* تظهر في الزاوية اليسرى السفلية */
+            width: 320px; 
+            height: 450px; 
+            z-index: 999999; 
+            display: none; 
+            background: #2c3e50; 
+            border-radius: 15px; 
+            overflow: hidden; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3); 
+            border: 2px solid #27ae60;
+        }
 
         @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0.7); } 70% { box-shadow: 0 0 0 20px rgba(39, 174, 96, 0); } 100% { box-shadow: 0 0 0 0 rgba(39, 174, 96, 0); } }
         
@@ -167,7 +180,7 @@
 
     // --- الانضمام للغرفة (محرك ZegoCloud) ---
     function joinRoom(roomID) {
-        // 💡 الحل الجذري: إظهار الحاوية *قبل* التهيئة ليتمكن المتصفح من إظهار نافذة إذن المايكروفون
+        // إظهار الحاوية العائمة أولاً ليتمكن المتصفح من إظهار نافذة إذن المايكروفون
         const callContainer = document.getElementById('callContainer');
         callContainer.style.display = 'block'; 
 
@@ -198,13 +211,13 @@
         });
     }
 
-    // --- الوشوشة الجانبية: مراقب جودة النت الحقيقي ---
+    // --- الوشوشة الجانبية: مراقب جودة النت ---
     function startNetworkMonitor() {
         if(networkInterval) clearInterval(networkInterval);
         
         networkInterval = setInterval(() => {
             if (zegoInstance) {
-                // محاكاة جلب البيانات لتوضيح الفكرة (Zego يدعمها بـ callbacks متقدمة)
+                // محاكاة جلب البيانات لتوضيح الفكرة
                 const qualityLevels = ["ممتاز 🟢", "جيد جداً 🔵", "متذبذب 🟡", "ضعيف 🔴"];
                 const mockLatency = Math.floor(Math.random() * 40) + 20; 
                 let qualityIndex = mockLatency < 30 ? 0 : mockLatency < 45 ? 1 : mockLatency < 60 ? 2 : 3;
